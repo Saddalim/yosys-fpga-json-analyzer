@@ -8,7 +8,8 @@ Links for further reading about Yosys
 ## Usage
 
 To run, specify the JSON to be parsed via the first argument
-> `fpga-json-analyzer ~/top.json`
+
+    $ fpga-json-analyzer ~/top.json
 
 ## Build
 
@@ -17,22 +18,27 @@ Visual Studio Code with C++ and CMake extensions installed will do the rest of t
 ### Linux
 
 Install toolchain
-> `sudo apt update`  
-> `sudo apt install gcc g++ cmake git`
+
+    $ sudo apt update
+    $ sudo apt install gcc g++ cmake git
 
 Make sure you got at least g++11. Version 13 is recommended, if available on your distro.
-> `g++ --version`
+
+    $ g++ --version
 
 Clone/pull the repository and its submodules as well  
-> `git pull`  
-> `cd yosys-fpga-json-analyzer`  
-> `git submodule update --init --recursive`
+
+    $ git pull
+    $ cd yosys-fpga-json-analyzer
+    $ git submodule update --init --recursive
 
 Configure project
-> `cmake .`
+
+    $ cmake .
 
 Build project
-> `make`
+
+    $ make
 
 ### Windows
 
