@@ -3,8 +3,7 @@
 #include <fstream>
 #include <map>
 #include <list>
-
-#include <format>
+#include <set>
 
 #include "LogicalCell.h"
 #include "Port.h"
@@ -13,11 +12,44 @@
 
 using json = nlohmann::json;
 
+std::set<cellId_t> visitedCells;
+
+void crawlBack(LogicalCell& from)
+{
+    std::cout << " Cell #" << std::setw(2) << from.id;
+    
+    if (visitedCells.contains(from.id))
+    {
+        std::cerr << "\nCircular network! Found node #" << from.id << " again!\n";
+        throw std::runtime_error("Circular network");
+    }
+
+    visitedCells.insert(from.id);
+
+    bool hasNoInputs = true;
+    for (auto& input : std::as_const(from.inputs))
+    {
+        for (const Link& link : input.second.links)
+        {
+            if (link.input != nullptr)
+            {
+                hasNoInputs = false;
+                std::cout << "\n Cell #" << std::setw(2) << from.id << " " << std::setw(2) << input.second.name << " <- " << std::setw(2) << link.id << " <- " << std::setw(2) << link.input->name << " <-";
+                crawlBack(link.input->cell);
+            }
+        }
+    }
+    if (hasNoInputs)
+    {
+        std::cout << "\nPotential root cell: #" << from.id << std::endl;
+    }
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        std::cerr << "Invalid number of arguments";
+        std::cerr << "Invalid number of arguments" << std::endl;
         return EXIT_FAILURE;
     }
 
@@ -55,7 +87,7 @@ int main(int argc, char *argv[])
                 else if (connection.value() == "output")
                     portTypes.emplace(connection.key(), Port::Type::OUTPUT);
                 else
-                    throw std::runtime_error(std::format("Could not determine type of port {} of cell #{}: {}", connection.key(), std::to_string(lc.id), std::string(connection.value())));
+                    throw std::runtime_error("Could not determine type of port" + connection.key() + "of cell #" + std::to_string(lc.id) + ": " + std::string(connection.value()));
             }
 
             for (const auto& connectionList : cell.at("connections").items())
@@ -76,7 +108,7 @@ int main(int argc, char *argv[])
                             }
                             break;
                         default:
-                            throw std::runtime_error(std::format("Invalid port connection in node #{} port {}: {}", lc.id, portId, std::string(remotePort)));
+                            throw std::runtime_error("Invalid port connection in node #" + std::to_string(lc.id) + " port " + portId + ": " + std::string(remotePort));
                     }
                 }
             }
@@ -84,15 +116,24 @@ int main(int argc, char *argv[])
             ++cellCnt;            
         }
 
+        // Cell counts
         std::cout << "Parsed, found " << cellCnt << " cells:" << std::endl;
         for (const auto& typeData : typeCnts)
         {
             std::cout << typeData.first << " : " << typeData.second << '\n';
         }
-        for (auto& cell : cells)
+
+        std::cout << "======================================================\n";
+        // Raw cell data
+        for (LogicalCell& cell : cells)
         {
             std::cout << cell << '\n';
         }
+
+        std::cout << "======================================================\n";
+        // Try to find root link
+        crawlBack(cells.front());
+        
     }
     catch (std::out_of_range&)
     {
