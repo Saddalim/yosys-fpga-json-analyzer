@@ -14,7 +14,7 @@ using json = nlohmann::json;
 
 std::set<cellId_t> visitedCells;
 
-void crawlBack(LogicalCell& from)
+void crawlBack(const LogicalCell& from)
 {
     std::cout << " Cell #" << std::setw(2) << from.id;
     
@@ -27,7 +27,7 @@ void crawlBack(LogicalCell& from)
     visitedCells.insert(from.id);
 
     bool hasNoInputs = true;
-    for (auto& input : std::as_const(from.inputs))
+    for (auto& input : from.inputs)
     {
         for (const Link& link : input.second.links)
         {
@@ -42,6 +42,45 @@ void crawlBack(LogicalCell& from)
     if (hasNoInputs)
     {
         std::cout << "\nPotential root cell: #" << from.id << std::endl;
+    }
+}
+
+void crawlForward(const LogicalCell& from, const bool stopOnCircular = true, const size_t maxCellCnt = 0)
+{
+    std::cout << " Cell #" << std::setw(2) << from.id << " (" << from.type << ")";
+    
+    if (visitedCells.contains(from.id))
+    {
+        std::cerr << "\nCircular network! Found node #" << from.id << " again!\n";
+        if (stopOnCircular)
+            throw std::runtime_error("Circular network");
+        else
+            return;
+    }
+
+    visitedCells.insert(from.id);
+    if (maxCellCnt > 0 && visitedCells.size() >= maxCellCnt)
+    {
+        std::cout << "\nMax cell count reached, terminating crawl\n";
+        throw std::runtime_error("Max cell count reached");
+    }
+
+    bool hasNoConnectedOutputs = true;
+    for (auto& output : from.outputs)
+    {
+        for (const Link& link : output.second.links)
+        {
+            for (auto inputPort : link.outputs)
+            {
+                hasNoConnectedOutputs = false;
+                std::cout << "\n Cell #" << std::setw(2) << from.id << " (" << from.type << ") " << std::setw(2) << output.second.name << " -> " << std::setw(2) << link.id << " -> " << std::setw(2) << inputPort.get().name << " ->";
+                crawlForward(inputPort.get().cell, stopOnCircular, maxCellCnt);
+            }
+        }
+    }
+    if (hasNoConnectedOutputs)
+    {
+        std::cout << "\nDead-end: #" << from.id << " (" << from.type << ") (" << from.name << ")" << std::endl;
     }
 }
 
@@ -68,9 +107,9 @@ int main(int argc, char *argv[])
         std::map<portId_t, Link> links;
         size_t cellCnt = 0;
 
-        for (const auto& cell : project.at("cells"))
+        for (const auto& cell : project.at("cells").items())
         {
-            std::string cellType = cell.at("type");
+            std::string cellType = cell.value().at("type");
             std::map<std::string, Port::Type> portTypes;
 
             if (typeCnts.count(cellType))
@@ -78,9 +117,9 @@ int main(int argc, char *argv[])
             else
                 typeCnts[cellType] = 1;
 
-            LogicalCell& lc = cells.emplace_back(cellCnt, cellType);
+            LogicalCell& lc = cells.emplace_back(cellCnt, cell.key(), cellType);
             
-            for (const auto& connection : cell.at("port_directions").items())
+            for (const auto& connection : cell.value().at("port_directions").items())
             {
                 if (connection.value() == "input")
                     portTypes.emplace(connection.key(), Port::Type::INPUT);
@@ -90,7 +129,7 @@ int main(int argc, char *argv[])
                     throw std::runtime_error("Could not determine type of port" + connection.key() + "of cell #" + std::to_string(lc.id) + ": " + std::string(connection.value()));
             }
 
-            for (const auto& connectionList : cell.at("connections").items())
+            for (const auto& connectionList : cell.value().at("connections").items())
             {
                 std::string portId = connectionList.key();
                 for (const auto& remotePort : connectionList.value())
@@ -132,7 +171,15 @@ int main(int argc, char *argv[])
 
         std::cout << "======================================================\n";
         // Try to find root link
-        crawlBack(cells.front());
+        //crawlBack(cells.front());
+
+        std::cout << "======================================================\n";
+        for (const LogicalCell& cell : cells)
+        {
+            std::cout << "Start crawl from cell #" << cell.id << std::endl;
+            if (! visitedCells.contains(cell.id))
+                crawlForward(cell, false, cells.size());
+        }
         
     }
     catch (std::out_of_range&)

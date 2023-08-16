@@ -16,6 +16,7 @@ struct LogicalCell
     static constexpr cellId_t INVALID_ID = -1; 
 
     cellId_t id = INVALID_ID;
+    std::string name;
     std::string type;
     std::map<std::string, Port> inputs;
     std::map<std::string, Port> outputs;
@@ -23,7 +24,7 @@ struct LogicalCell
     void assignPort(std::string portName, Link& link, Port::Type type);
 
     LogicalCell() = delete;
-    LogicalCell(cellId_t id, std::string type) : id(id), type(type) {}
+    LogicalCell(cellId_t id, std::string name, std::string type) : id(id), name(name), type(type) {}
 
 };
 
