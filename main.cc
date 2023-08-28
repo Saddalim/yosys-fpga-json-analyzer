@@ -5,82 +5,121 @@
 #include <list>
 #include <set>
 
-#include "LogicalCell.h"
+#include "Cell.h"
 #include "Port.h"
+#include "LogicCell.h"
 
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
-std::set<cellId_t> visitedCells;
+std::list<LogicCell*> logicCells;
 
-void crawlBack(const LogicalCell& from)
+void parseLogicCells(std::list<Cell>& cells)
 {
-    std::cout << " Cell #" << std::setw(2) << from.id;
+    std::set<Cell> visitedCells;
     
-    if (visitedCells.contains(from.id))
+    for (Cell& cell : cells)
     {
-        std::cerr << "\nCircular network! Found node #" << from.id << " again!\n";
-        throw std::runtime_error("Circular network");
-    }
+        if (cell.parentLC != nullptr) continue;
 
-    visitedCells.insert(from.id);
-
-    bool hasNoInputs = true;
-    for (auto& input : from.inputs)
-    {
-        for (const Link& link : input.second.links)
+        switch (cell.type)
         {
-            if (link.input != nullptr)
-            {
-                hasNoInputs = false;
-                std::cout << "\n Cell #" << std::setw(2) << from.id << " " << std::setw(2) << input.second.name << " <- " << std::setw(2) << link.id << " <- " << std::setw(2) << link.input->name << " <-";
-                crawlBack(link.input->cell);
-            }
+            case Cell::Type::LUT:
+                cell.doForAllOutputCells([&](Cell& nextCell) {
+                    if (nextCell.type == Cell::Type::DFF)
+                    {
+                        if (nextCell.parentLC == nullptr)
+                        {
+                            LogicCell* newLC = new LogicCell();
+                            newLC->id = logicCells.size();
+                            newLC->lut = &cell;
+                            newLC->dff = &nextCell;
+                            cell.parentLC = newLC;
+                            nextCell.parentLC = newLC;
+                            logicCells.push_back(newLC);
+                        }
+                        else
+                        {
+                            if (cell.parentLC != nullptr) std::cerr << "WARNING: overwriting parent LC for cell: " << cell << std::endl;
+                            cell.parentLC = nextCell.parentLC;
+                            if (cell.parentLC->lut != nullptr) std::cerr << "WARNING: overwriting LUT of LC: " << *(cell.parentLC->lut) << " to " << cell << std::endl;
+                            cell.parentLC->lut = &cell;
+                        }
+                    }
+                });
+                break;
+            case Cell::Type::DFF:
+                cell.doForAllInputCells([&](Cell& prevCell) {
+                    if (prevCell.type == Cell::Type::LUT)
+                    {
+                        if (prevCell.parentLC == nullptr)
+                        {
+                            LogicCell* newLC = new LogicCell();
+                            newLC->id = logicCells.size();
+                            newLC->dff = &cell;
+                            newLC->lut = &prevCell;
+                            cell.parentLC = newLC;
+                            prevCell.parentLC = newLC;
+                            logicCells.push_back(newLC);
+                        }
+                        else
+                        {
+                            if (cell.parentLC != nullptr) std::cerr << "WARNING: overwriting parent LC for cell: " << cell << std::endl;
+                            cell.parentLC = prevCell.parentLC;
+                            if (cell.parentLC->dff != nullptr) std::cerr << "WARNING: overwriting DFF of LC: " << *(cell.parentLC->dff) << " to " << cell << std::endl;
+                            cell.parentLC->dff = &cell;
+                        }
+                    }
+                });
+                cell.doForAllOutputCells([&](Cell& nextCell) {
+                    if (nextCell.type == Cell::Type::Carry)
+                    {
+                        if (nextCell.parentLC == nullptr)
+                        {
+                            LogicCell* newLC = new LogicCell();
+                            newLC->id = logicCells.size();
+                            newLC->dff = &cell;
+                            newLC->carry = &nextCell;
+                            cell.parentLC = newLC;
+                            nextCell.parentLC = newLC;
+                            logicCells.push_back(newLC);
+                        }
+                        else
+                        {
+                            if (cell.parentLC != nullptr) std::cerr << "WARNING: overwriting parent LC for cell: " << cell << std::endl;
+                            cell.parentLC = nextCell.parentLC;
+                            if (cell.parentLC->dff != nullptr) std::cerr << "WARNING: overwriting DFF of LC: " << *(cell.parentLC->dff) << " to " << cell << std::endl;
+                            cell.parentLC->dff = &cell;
+                        }
+                    }
+                });
+                break;
+            case Cell::Type::Carry:
+                cell.doForAllInputCells([&](Cell& prevCell) {
+                    if (prevCell.type == Cell::Type::DFF)
+                    {
+                        if (prevCell.parentLC == nullptr)
+                        {
+                            LogicCell* newLC = new LogicCell();
+                            newLC->id = logicCells.size();
+                            newLC->dff = &prevCell;
+                            newLC->carry = &cell;
+                            cell.parentLC = newLC;
+                            prevCell.parentLC = newLC;
+                            logicCells.push_back(newLC);
+                        }
+                        else
+                        {
+                            if (cell.parentLC != nullptr) std::cerr << "WARNING: overwriting parent LC for cell: " << cell << std::endl;
+                            cell.parentLC = prevCell.parentLC;
+                            if (cell.parentLC->carry != nullptr) std::cerr << "WARNING: overwriting Carry of LC: " << *(cell.parentLC->carry) << " to " << cell  << std::endl;
+                            cell.parentLC->carry = &cell;
+                        }
+                    }
+                });
+                break;
         }
-    }
-    if (hasNoInputs)
-    {
-        std::cout << "\nPotential root cell: #" << from.id << std::endl;
-    }
-}
-
-void crawlForward(const LogicalCell& from, const bool stopOnCircular = true, const size_t maxCellCnt = 0)
-{
-    std::cout << " Cell #" << std::setw(2) << from.id << " (" << from.type << ")";
-    
-    if (visitedCells.contains(from.id))
-    {
-        std::cerr << "\nCircular network! Found node #" << from.id << " again!\n";
-        if (stopOnCircular)
-            throw std::runtime_error("Circular network");
-        else
-            return;
-    }
-
-    visitedCells.insert(from.id);
-    if (maxCellCnt > 0 && visitedCells.size() >= maxCellCnt)
-    {
-        std::cout << "\nMax cell count reached, terminating crawl\n";
-        throw std::runtime_error("Max cell count reached");
-    }
-
-    bool hasNoConnectedOutputs = true;
-    for (auto& output : from.outputs)
-    {
-        for (const Link& link : output.second.links)
-        {
-            for (auto inputPort : link.outputs)
-            {
-                hasNoConnectedOutputs = false;
-                std::cout << "\n Cell #" << std::setw(2) << from.id << " (" << from.type << ") " << std::setw(2) << output.second.name << " -> " << std::setw(2) << link.id << " -> " << std::setw(2) << inputPort.get().name << " ->";
-                crawlForward(inputPort.get().cell, stopOnCircular, maxCellCnt);
-            }
-        }
-    }
-    if (hasNoConnectedOutputs)
-    {
-        std::cout << "\nDead-end: #" << from.id << " (" << from.type << ") (" << from.name << ")" << std::endl;
     }
 }
 
@@ -103,7 +142,7 @@ int main(int argc, char *argv[])
     {
         const auto& project = data.at("modules").at("top");
         std::map<std::string, size_t> typeCnts;
-        std::list<LogicalCell> cells;
+        std::list<Cell> cells;
         std::map<portId_t, Link> links;
         size_t cellCnt = 0;
 
@@ -117,7 +156,7 @@ int main(int argc, char *argv[])
             else
                 typeCnts[cellType] = 1;
 
-            LogicalCell& lc = cells.emplace_back(cellCnt, cell.key(), cellType);
+            Cell& lc = cells.emplace_back(cellCnt, cell.key(), cellType);
             
             for (const auto& connection : cell.value().at("port_directions").items())
             {
@@ -156,7 +195,7 @@ int main(int argc, char *argv[])
         }
 
         // Cell counts
-        std::cout << "Parsed, found " << cellCnt << " cells:" << std::endl;
+        std::cout << "Parsed, found " << cellCnt << " cells of types:" << std::endl;
         for (const auto& typeData : typeCnts)
         {
             std::cout << typeData.first << " : " << typeData.second << '\n';
@@ -164,23 +203,66 @@ int main(int argc, char *argv[])
 
         std::cout << "======================================================\n";
         // Raw cell data
-        for (LogicalCell& cell : cells)
+        std::cout << "Raw cell data:" << std::endl;
+        for (Cell& cell : cells)
         {
             std::cout << cell << '\n';
         }
 
         std::cout << "======================================================\n";
-        // Try to find root link
-        //crawlBack(cells.front());
+        // Check for DFFs with non-LUT inputs - that would mean some logic madness
+        std::cout << "Checking cell hierarchy..." << std::endl;
+        for (Cell& dffCell : cells)
+        {
+            if (dffCell.type != Cell::Type::DFF) continue;
+            dffCell.doForAllInputCells([](const Cell& cell) { if (cell.type != Cell::Type::LUT) std::cerr << "Unexpected cell type " << cell.type << " as input of: " << cell << std::endl; } );
+        }
 
+        /*
         std::cout << "======================================================\n";
-        for (const LogicalCell& cell : cells)
+        std::set<cellId_t> visitedCells;
+        for (const Cell& cell : cells)
         {
             std::cout << "Start crawl from cell #" << cell.id << std::endl;
             if (! visitedCells.contains(cell.id))
-                crawlForward(cell, false, cells.size());
+                Cell::doCrawlForward(cell, false, cells.size(), visitedCells);
         }
-        
+        */
+       
+        std::cout << "======================================================\n";
+        // Build LCs
+        std::cout << "Building logic cell hierarchy..." << std::endl;
+        parseLogicCells(cells);
+        for (auto& lc : logicCells)
+        {
+            std::cout << *lc << std::endl;
+        }
+        std::cout << "======================================================\n";
+        std::cout << "Looking for longest chain of orphan LUTs...\n";
+        std::cout << "Orphan cells:\n";
+        std::list<std::reference_wrapper<Cell>> orphanCells;
+        for (Cell& cell : cells)
+        {
+            if (cell.parentLC != nullptr) continue;
+            if (cell.type != Cell::Type::LUT)
+            {
+                std::cout << "Unexpected orphan cell type: " << cell << std::endl;
+                continue;
+            }
+            orphanCells.push_back(cell);
+            std::cout << cell << std::endl;
+            std::string chain;
+            size_t orphanChainLength = 0;
+            cell.crawlForwardUntil(
+                [](const Cell& cell) { return cell.parentLC == nullptr; },
+                [&] (const Cell& cell) { ++orphanChainLength; chain += std::to_string(cell.id) + " -> "; },
+                cells.size()
+            );
+            std::cout << "\t[" << orphanChainLength << "]: " << chain << std::endl;
+        }
+        for (auto& orphanCell : orphanCells)
+        {
+        }
     }
     catch (std::out_of_range&)
     {

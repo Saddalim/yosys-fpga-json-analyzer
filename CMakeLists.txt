@@ -8,7 +8,7 @@ add_subdirectory(nlohmann_json)
 
 add_executable (fpga-json-parser 
     main.cc
-    LogicalCell.cpp
+    Cell.cpp
     Port.cpp
 )
 

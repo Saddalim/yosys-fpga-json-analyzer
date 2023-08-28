@@ -4,7 +4,7 @@
 #include <list>
 #include <functional>
 
-struct LogicalCell;
+struct Cell;
 
 typedef int portId_t;
 
@@ -17,12 +17,12 @@ struct Port
     enum class Type { INPUT, OUTPUT };
 
     std::string name;
-    LogicalCell& cell;
+    Cell& cell;
     Type type;
     std::list<std::reference_wrapper<Link>> links;
 
     Port() = delete;
-    Port(std::string name, LogicalCell& cell, Link& link, Type type);
+    Port(std::string name, Cell& cell, Link& link, Type type);
 };
 
 std::ostream& operator<<(std::ostream& os, const Port& port);
