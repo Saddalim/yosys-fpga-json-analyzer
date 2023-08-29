@@ -41,6 +41,22 @@ void Cell::assignPort(std::string portName, Link& link, Port::Type type)
     }
 }
 
+bool Cell::hasLinkTo(const cellId_t cellId)
+{
+    if (! cellIdIndexBuilt)
+    {
+        doForAllOutputCells([&](Cell& nextCell) { outputsByCellId.emplace(std::pair<cellId_t, std::reference_wrapper<Cell>>(nextCell.id, nextCell)); return true; });
+        cellIdIndexBuilt = true;
+    }
+
+    return outputsByCellId.contains(cellId);
+}
+
+bool Cell::hasLinkTo(const Cell& otherCell)
+{
+    return hasLinkTo(otherCell.id);
+}
+
 /*static*/ void Cell::crawlForward(const Cell& from, const bool stopOnCircular /* = true */, const size_t maxCellCnt /* = 0 */)
 {
     std::set<cellId_t> visitedCells;
@@ -89,9 +105,9 @@ void Cell::assignPort(std::string portName, Link& link, Port::Type type)
 /*static*/ Cell::Type Cell::parseType(const std::string& str)
 {
     if (str == "SB_LUT4") return Cell::Type::LUT;
-    else if (str == "SB_DFF") return Cell::Type::DFF;
-    else if (str == "SB_DFFE") return Cell::Type::DFF;
+    else if (str.starts_with("SB_DFF")) return Cell::Type::DFF;
     else if (str == "SB_CARRY") return Cell::Type::Carry;
+    else if (str.starts_with("SB_RAM")) return Cell::Type::RAM;
 
     return Cell::Type::Unknown;
 }

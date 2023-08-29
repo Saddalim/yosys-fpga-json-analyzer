@@ -18,7 +18,7 @@ struct Cell
 {
     enum class Type
     {
-        Unknown, LUT, DFF, Carry
+        Unknown, LUT, DFF, Carry, RAM
     };
 
     static std::string typeToStr(Type type)
@@ -28,6 +28,7 @@ struct Cell
             case Cell::Type::LUT: return "LUT";
             case Cell::Type::DFF: return "DFF";
             case Cell::Type::Carry: return "Carry";
+            case Cell::Type::RAM: return "RAM";
         }
         return "???";
     }
@@ -39,10 +40,13 @@ struct Cell
     Type type;
     std::map<std::string, Port> inputs;
     std::map<std::string, Port> outputs;
+    std::map<cellId_t, std::reference_wrapper<Cell>> outputsByCellId;
+    bool cellIdIndexBuilt = false;
     LogicCell* parentLC;
 
     void assignPort(std::string portName, Link& link, Port::Type type);
-
+    bool hasLinkTo(const cellId_t cellId);
+    bool hasLinkTo(const Cell& otherCell);
 
     static void crawlForward(const Cell& from, const bool stopOnCircular = true, const size_t maxCellCnt = 0);
     static void doCrawlForward(const Cell& from, const bool stopOnCircular, const size_t maxCellCnt, std::set<cellId_t>& visitedCells);
@@ -56,7 +60,7 @@ struct Cell
             for (auto& link : input.second.links)
             {
                 if (link.get().input != nullptr)
-                    func(link.get().input->cell);
+                    if (! func(link.get().input->cell)) return;
             }
         }
     }
@@ -70,7 +74,7 @@ struct Cell
             {
                 for (auto& port : link.get().outputs)
                 {
-                    func(port.get().cell);
+                    if (! func(port.get().cell)) return;
                 }
             }
         }
@@ -79,6 +83,7 @@ struct Cell
     template <typename Predicate, typename Callback>
     void crawlForwardUntil(Predicate continuePredicate, Callback callback, const size_t maxDepth)
     {
+        if (maxDepth == 0) return;
         if (! continuePredicate(*this)) return;
         callback(*this);
         // TODO better to reuse, but this fails to link :(
