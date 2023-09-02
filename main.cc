@@ -187,7 +187,7 @@ int main(int argc, char *argv[])
     for (Cell& dffCell : cells)
     {
         if (dffCell.type != Cell::Type::DFF) continue;
-        dffCell.doForAllInputCells([](const Cell& cell) { if (cell.type != Cell::Type::LUT) std::cerr << "Unexpected cell type " << cell.type << " as input of: " << cell << " {" << cell.name << "}" << std::endl; return true; } );
+        dffCell.doForAllInputCells([](const Cell& cell) { if (cell.type != Cell::Type::LUT) std::cerr << "Unexpected cell type " << cell.type << " as input of a DFF: " << cell << " {" << cell.name << "}" << std::endl; return true; } );
     }
 
     /*
@@ -226,10 +226,102 @@ int main(int argc, char *argv[])
     orphanCells.shrink_to_fit();
     const cellId_t orphanCellCnt = orphanCells.size();
 
-    std::cout << "Found " << orphanCellCnt << " orphan cells, initializing longest-path-search...\n";
-    // Floyd-Warshall algorithm
+    std::cout << "Found " << orphanCellCnt << " orphan cells:\n";
+    for (const Cell& orphanCell : orphanCells)
+    {
+        std::cout << orphanCell << std::endl;
+    }
+
+    std::cout << "Initializing longest-path-search...\n";
     constexpr cellId_t INF = std::numeric_limits<cellId_t>::max() / 2 - 1;
     std::vector<std::vector<cellId_t>> distances(orphanCellCnt, std::vector<cellId_t>(orphanCellCnt, INF));
+    cellId_t repEveryNth = std::max(orphanCellCnt, 100) / 100;
+
+    // Bellman-Ford algorithm
+    std::vector<std::vector<cellId_t>> predecessors(orphanCellCnt, std::vector<cellId_t>(orphanCellCnt, INF));
+
+    for (cellId_t sourceCellId = 0; sourceCellId < orphanCellCnt; ++sourceCellId)
+    {
+        for (cellId_t v = 0; v < orphanCellCnt; ++v)
+        {
+            distances[sourceCellId][v] = INF;
+            predecessors[sourceCellId][v] = Cell::INVALID_ID;
+        }
+
+        distances[sourceCellId][sourceCellId] = 0;
+
+        for (cellId_t cycle = 0; cycle < orphanCellCnt - 1; ++cycle)
+        {
+            for (cellId_t u = 0; u < orphanCellCnt; ++u)
+            {
+                orphanCells[u].get().doForAllOutputCells([&](const Cell& to){
+                    cellId_t v = to.id;
+                    if (u == v) return true;
+                    if (distances[sourceCellId][u] != INF && distances[sourceCellId][u] + (-1) < distances[sourceCellId][v])
+                    {
+                        distances[sourceCellId][v] = distances[sourceCellId][u] + (-1);
+                        predecessors[sourceCellId][v] = u;
+                    }
+                    return true;
+                });
+            }
+        }
+
+        // Check for circles
+        for (cellId_t cycle = 0; cycle < orphanCellCnt; ++cycle)
+        {
+            for (cellId_t u = 0; u < orphanCellCnt; ++u)
+            {
+                orphanCells[u].get().doForAllOutputCells([&](const Cell& to){
+                    cellId_t v = to.id;
+                    if (u == v) return true;
+                    if (distances[sourceCellId][u] == INF || distances[sourceCellId][v] == INF)
+                    {
+                        // TODO handle component count
+                    }
+                    else if (distances[sourceCellId][u] + (-1) < distances[sourceCellId][v])
+                    {
+                        std::cerr << "LUTs form a cycle from node #" << orphanCells[sourceCellId].get().id << ", unable to determine longest path" << std::endl;
+                        return false;
+                        //predecessors[sourceCellId][v] = u;
+                    }
+                    return true;
+                });
+            }
+        }
+
+        if (sourceCellId % repEveryNth == 0)
+            std::cout << "\r" << (sourceCellId * 100 / orphanCellCnt) << "%" << std::flush;
+    }
+    std::cout << "\r100%\n";
+
+    cellId_t maxLength = 0;
+    std::pair<cellId_t, cellId_t> between;
+    cellId_t componentCnt;
+    for (cellId_t u = 0; u < orphanCellCnt; ++u)
+    {
+        for (cellId_t v = 0; v < orphanCellCnt; ++v)
+        {
+            if (distances[u][v] == INF)
+            {
+                // TODO handle component count
+            }
+            else if (maxLength > distances[u][v]) // inverse due to negative weights
+            {
+                maxLength = distances[u][v];
+                between = {u, v};
+            }
+        }
+    }
+
+    //printMatrix(distances, INF);
+
+    // maxLength is the max length between 2 orphans. Full LUT length shall include the hop to the first and from the last orphan LUT
+    std::cout << "Longest of the shortest chains is " << (maxLength * -1 + 2) << " LUTs between (excl. first and last cells):\n"
+        << orphanCells[between.first] << std::endl << orphanCells[between.second] << std::endl;
+
+    // Floyd-Warshall algorithm
+    /*
 
     for (cellId_t u = 0; u < orphanCellCnt; ++u)
     {
@@ -245,7 +337,6 @@ int main(int argc, char *argv[])
     //printMatrix(distances, INF);
 
     std::cout << "Running longest-path-search...\n";
-    cellId_t repEveryNth = std::max(orphanCellCnt, 100) / 100;
 
     for (cellId_t k = 0; k < orphanCellCnt; ++k)
     {
@@ -266,14 +357,33 @@ int main(int argc, char *argv[])
     std::cout << "\r100%\n";
 
     //printMatrix(distances, INF);
-    // determining max chain length
+    // determining max chain length and separate paths
     cellId_t maxLength = 0;
     std::pair<cellId_t, cellId_t> between;
+
+    size_t separatePathCnt = 1;
+    std::set<cellId_t> groupedCellIds;
+    std::set<cellId_t> unreachableCellIds;
+    std::list<std::set<cellId_t>> separatePaths;
+    std::set<cellId_t>& currentPath = separatePaths.emplace_back();
+
     for (cellId_t i = 0; i < orphanCellCnt; ++i)
     {
+        if (unreachableCellIds.contains(i))
+        {
+            currentPath = separatePaths.emplace_back();
+        }
+        groupedCellIds.insert(i);
         for (cellId_t j = 0; j < orphanCellCnt; ++j)
         {
-            if (distances[i][j] != INF && distances[i][j] > maxLength)
+            if (groupedCellIds.contains(j))
+                std::cerr << "Szar van a palacsintaban!\n";
+            currentPath.insert(j);
+            if (distances[i][j] == INF)
+            {
+                unreachableCellIds.insert(j);
+            }
+            else if (distances[i][j] > maxLength)
             {
                 maxLength = distances[i][j];
                 between.first = i;
@@ -285,5 +395,6 @@ int main(int argc, char *argv[])
     // maxLength is the max length between 2 orphans. Full LUT length shall include the hop to the first and from the last orphan LUT
     std::cout << "Longest of the shortest chains is " << (maxLength + 2) << " LUTs between (excl. first and last cells):\n"
         << orphanCells[between.first] << std::endl << orphanCells[between.second] << std::endl;
+    */
     
 }
