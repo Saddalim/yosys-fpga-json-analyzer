@@ -251,22 +251,17 @@ int main(int argc, char *argv[])
 
     std::cout << "======================================================\n";
     std::map<cellId_t, CellVisitData> cellVisitStates;
+    std::vector<std::pair<cellId_t, CellVisitData>> cellData;
+    std::map<size_t, size_t> histogramData;
+    size_t maxCnt = 0;
     for (auto& cellPair : cells)
     {
         Cell& cell = cellPair.second;
         if (cell.type != Cell::Type::DFF) continue;
-        size_t length = crawlBackward(cell, cellVisitStates);
-    }
+        crawlBackward(cell, cellVisitStates);
+        cellData.emplace_back(cell.id, cellVisitStates.at(cell.id));
 
-    std::vector<std::pair<cellId_t, CellVisitData>> cellData;
-    cellData.reserve(cellVisitStates.size());
-
-    std::map<size_t, size_t> histogramData;
-    size_t maxCnt = 0;
-    for (auto& cellVisitState : cellVisitStates)
-    {
-        cellData.push_back(cellVisitState);
-        size_t pathLength = cellVisitState.second.longestPathLength;
+        size_t pathLength = cellVisitStates.at(cell.id).longestPathLength;
         if (pathLength > 0)
         {
             if (! histogramData.contains(pathLength))
@@ -281,10 +276,20 @@ int main(int argc, char *argv[])
         }
     }
 
+    cellData.shrink_to_fit();
+
+
     std::sort(cellData.begin(), cellData.end(), [](auto& a, auto& b) { return a.second.longestPathLength > b.second.longestPathLength; });
 
-    std::cout << "The 10 longest paths:\n";
-    for (size_t i = 0; i < 10; ++i)
+    size_t topListSize = std::min((size_t)10, cellData.size());
+    if (topListSize == 0)
+    {
+        std::cout << "Found no routes?!\n";
+        return EXIT_SUCCESS;
+    }
+
+    std::cout << "The " << topListSize << " longest paths:\n";
+    for (size_t i = 0; i < topListSize; ++i)
     {
         const Cell& cell = cells.at(cellData[i].first);
         std::cout << "#" << std::setw(2) << (i + 1) << ".: len: " << std::setw(3) << cellData[i].second.longestPathLength << ", name: " << std::setw(50) << cell.name << ", src: " << cell.verilogSrc << '\n';
@@ -297,6 +302,7 @@ int main(int argc, char *argv[])
     size_t lenCatSize = histogramData.size() / histogramHeight;
 
     size_t fromLen = histogramData.begin()->first;
+    size_t toLen = fromLen;
     size_t accuCnt = 0;
     size_t sumCnt = 0;
 
@@ -304,22 +310,25 @@ int main(int argc, char *argv[])
 
     for (auto& histogramDatum : histogramData)
     {
+        if (fromLen == toLen) fromLen = histogramDatum.first;
         sumCnt += histogramDatum.second;
         ++accuCnt;
 
-        if (accuCnt % lenCatSize == 0)
+        if (accuCnt % lenCatSize == 0 || histogramDatum == *(--histogramData.end()))
         {
-            size_t toLen = histogramDatum.first;
+            toLen = histogramDatum.first;
             size_t barWidth = (sumCnt * histogramWidth) / maxCnt;
 
             std::cout << " " << std::setw(3) << fromLen << "-" << std::setw(3) << toLen << " | " << std::setw(3) << sumCnt << " ";
             for (size_t i = 0; i < barWidth; ++i) std::cout << "*";
             std::cout << '\n';
 
-            fromLen = toLen + 1;
+            fromLen = toLen;
 
             accuCnt = 0;
             sumCnt = 0;
         }
     }
+
+    std::cout << "\nDone\n";
 }
