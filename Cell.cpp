@@ -10,17 +10,9 @@ void Cell::assignPort(std::string portName, Link& link, Port::Type type)
 {
     if (type == Port::Type::INPUT)
     {
-        auto itInput = inputs.find(portName);
-        if (itInput == inputs.end())
-        {
-            Port& port = inputs.emplace(std::piecewise_construct, std::forward_as_tuple(portName), std::forward_as_tuple(portName, *this, link, type)).first->second;
-            port.links.push_back(link);
-            link.outputs.push_back(port);
-        }
-        else
-        {
-            std::cerr << "WARNING: ignoring duplicated input " << portName << " of cell #" << id << " already set to link #" << link.id << ", instead of link #" << itInput->second.links.front().get().id << ". Possible config error?" << std::endl;
-        }
+        Port& port = inputs.emplace(std::piecewise_construct, std::forward_as_tuple(portName), std::forward_as_tuple(portName, *this, link, type)).first->second;
+        port.links.push_back(link);
+        link.outputs.push_back(port);
     }
     else if (type == Port::Type::OUTPUT)
     {

@@ -37,6 +37,7 @@ struct Cell
 
     cellId_t id = INVALID_ID;
     std::string name;
+    std::string verilogSrc;
     Type type;
     std::map<std::string, Port> inputs;
     std::map<std::string, Port> outputs;
