@@ -28,7 +28,7 @@ enum class CellVisitState
 struct CellVisitData
 {
     CellVisitState state = CellVisitState::NOT_VISITED;
-    size_t longestPathLength = 0;
+    std::list<cellId_t> longestPath;
 };
 
 void parseLogicCellsFromLUTs(std::list<Cell>& cells)
@@ -102,45 +102,52 @@ void printMatrix(const Mx& matrix, size_t invalidValue)
     std::cout << std::endl;
 }
 
-size_t crawlBackward(const Cell& cell, std::map<cellId_t, CellVisitData>& data, size_t currentDepth = 1)
+std::list<cellId_t> crawlBackward(const Cell& cell, std::map<cellId_t, CellVisitData>& data, std::list<cellId_t> currentPath)
 {
     if (! data.contains(cell.id))
     {
         data[cell.id] = CellVisitData();
     }
     CellVisitData& cellData = data.at(cell.id);
+    currentPath.push_back(cell.id);
 
     if (cellData.state == CellVisitState::NOT_VISITED)
     {
         cellData.state = CellVisitState::IN_PROGRESS;
 
         size_t maxDepth = 0;
+        std::list<cellId_t> longestPath;
         cell.doForAllInputCells([&](const Cell& prevCell) {
             if (prevCell.type == Cell::Type::DFF || prevCell.type == Cell::Type::Carry) return true;
 
-            size_t pathLengthOnward = crawlBackward(prevCell, data, currentDepth + 1);
-            maxDepth = std::max(maxDepth, pathLengthOnward);
+            std::list<cellId_t> pathOnward = crawlBackward(prevCell, data, currentPath);
+            size_t pathLengthOnward = pathOnward.size();
+            if (pathOnward.size() > longestPath.size())
+            {
+                longestPath = std::move(pathOnward);
+            }
             return true;
         });
 
         cellData.state = CellVisitState::VISITED;
-        cellData.longestPathLength = maxDepth;
+        cellData.longestPath = longestPath;
 
-        return maxDepth;
+        return longestPath;
     }
     else if (cellData.state == CellVisitState::IN_PROGRESS)
     {
         // circle!
         std::cout << "Circle in LUT graph at cell #" << cell.id << '\n';
-        return 0;
+        return {};
     }
     else if (cellData.state == CellVisitState::VISITED)
     {
-        return currentDepth + cellData.longestPathLength;
+        currentPath.emplace_back(cell.id);
+        return currentPath;
     }
 
     std::cout << "Crawl found cell in unexpected state: " << (int)cellData.state << '\n';
-    return 0;
+    throw std::runtime_error("");
 }
 
 int main(int argc, char *argv[])
@@ -257,11 +264,12 @@ int main(int argc, char *argv[])
     for (auto& cellPair : cells)
     {
         Cell& cell = cellPair.second;
-        if (cell.type != Cell::Type::DFF) continue;
-        crawlBackward(cell, cellVisitStates);
+        if (cell.type != Cell::Type::DFF && cell.type != Cell::Type::RAM) continue;
+        std::list<cellId_t> longestPath;
+        crawlBackward(cell, cellVisitStates, longestPath);
         cellData.emplace_back(cell.id, cellVisitStates.at(cell.id));
 
-        size_t pathLength = cellVisitStates.at(cell.id).longestPathLength;
+        size_t pathLength = cellVisitStates.at(cell.id).longestPath.size();
         if (pathLength > 0)
         {
             if (! histogramData.contains(pathLength))
@@ -279,7 +287,7 @@ int main(int argc, char *argv[])
     cellData.shrink_to_fit();
 
 
-    std::sort(cellData.begin(), cellData.end(), [](auto& a, auto& b) { return a.second.longestPathLength > b.second.longestPathLength; });
+    std::sort(cellData.begin(), cellData.end(), [](auto& a, auto& b) { return a.second.longestPath.size() > b.second.longestPath.size(); });
 
     size_t topListSize = std::min((size_t)10, cellData.size());
     if (topListSize == 0)
@@ -292,7 +300,13 @@ int main(int argc, char *argv[])
     for (size_t i = 0; i < topListSize; ++i)
     {
         const Cell& cell = cells.at(cellData[i].first);
-        std::cout << "#" << std::setw(2) << (i + 1) << ".: len: " << std::setw(3) << cellData[i].second.longestPathLength << ", name: " << std::setw(50) << cell.name << ", src: " << cell.verilogSrc << '\n';
+        std::cout << "#" << std::setw(2) << (i + 1) << ".: len: " << std::setw(3) << cellData[i].second.longestPath.size() << ", name: " << std::setw(50) << cell.name << ", src: " << cell.verilogSrc << '\n';
+        for (cellId_t pathCellId : cellData[i].second.longestPath)
+        {
+            const Cell& pathCell = cells.at(pathCellId);
+            std::cout << '\t' << pathCell.name << " (" << pathCell.verilogSrc << ")\n";
+        }
+        std::cout << '\n';
     }
 
     // Histogram
@@ -319,7 +333,14 @@ int main(int argc, char *argv[])
             toLen = histogramDatum.first;
             size_t barWidth = (sumCnt * histogramWidth) / maxCnt;
 
-            std::cout << " " << std::setw(3) << fromLen << "-" << std::setw(3) << toLen << " | " << std::setw(3) << sumCnt << " ";
+            std::cout << " " 
+                << std::setw(3) << std::right << fromLen 
+                << "-"
+                << std::setw(3) << std::left << toLen
+                << " | " 
+                << std::setw(3) << sumCnt 
+                << " ";
+
             for (size_t i = 0; i < barWidth; ++i) std::cout << "*";
             std::cout << '\n';
 
